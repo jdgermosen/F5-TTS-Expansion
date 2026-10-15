@@ -2,6 +2,9 @@
 This project fine-tunes the F5-TTS model to add a new language, using a pre-trained base to enhance multilingual capabilities.
 
 This tutorial will guide you through the fine-tuning process. To access the official F5-TTS repository, visit: https://github.com/SWivid/F5-TTS.
+
+> These steps were written for **F5-TTS v0.3.4** (commit `3e73553`). Newer releases renamed several training options, so check out that version as shown below.
+
 # Installation
 ```
 # create a python 3.10 env
@@ -20,11 +23,19 @@ pip install torch==2.3.0 torchaudio==2.3.0
 ```
 git clone https://github.com/SWivid/F5-TTS.git
 cd F5-TTS
+git checkout 3e73553   # v0.3.4
 pip install -e .
 ```
+## Install the dependencies for `wav_and_metadata.py`
+```
+pip install pydub SpeechRecognition
+# pydub needs ffmpeg to read MP3 files
+brew install ffmpeg        # macOS
+# sudo apt install ffmpeg  # Ubuntu
+```
 ## Setting up your dataset
-1. Create a directory for your data within the f5-tts/data folder. For example: f5-tts/data/new_language.
-2. Inside your new language directory, create a folder named wavs to store your audio files. For example: f5-tts/data/new_language/wavs.
+1. Create a directory for your data within the F5-TTS/data folder. For example: `F5-TTS/data/new_language`.
+2. Inside your new language directory, create a folder named `wavs` to store your audio files. For example: `F5-TTS/data/new_language/wavs`.
 
 At this point, your file structure should look like this:
 ```
@@ -32,22 +43,21 @@ At this point, your file structure should look like this:
 |-- data/
 |   |-- new_language/
 |   |   |-- wavs/
-|   |   |   |-- ...
-|   |   |   |-- ...
-|   |   |   |-- ...
 ```
 3. Use `wav_and_metadata.py` to convert your MP3 files to WAV format and generate a `metadata.csv` file.
-   
-* Specify the relative paths for your MP3 file (source audio in MP3 format), WAV file (destination in the `wavs` directory you created), and `metadata.csv` file, and then run the following command:
+
+* Set `mp3_dir` (your source MP3 files), `wav_dir` (the `wavs` directory you created), and `metadata_file` (where `metadata.csv` should be written) at the top of the script, then run:
 ```
 python wav_and_metadata.py
 ```
-* After running the script, your `metadata.csv` file should be structured like this:
+* The script transcribes each clip with Google's speech recognition (`es-MX`, internet required) and skips clips it can't transcribe. Your `metadata.csv` file should look like this:
 ```
 audio_file|text
-wavs/audio_001.wav|tenían prohibida por ley la presencia en teatros y aglomeraciones públicas
-wavs/audio_002.wav|Cómo operan el camarote claro que no nada de eso
+wavs/audio_0001.wav|tenían prohibida por ley la presencia en teatros y aglomeraciones públicas
+wavs/audio_0002.wav|Cómo operan el camarote claro que no nada de eso
 ```
+The first line is a header that F5-TTS skips, and each path is relative to the folder that holds `metadata.csv`. Review the transcriptions before training; the model learns whatever the text says.
+
 Once your `metadata.csv` file is created and your MP3 files are converted to WAV, your file structure should look like this:
 ```
 /F5-TTS
@@ -55,103 +65,74 @@ Once your `metadata.csv` file is created and your MP3 files are converted to WAV
 |   |-- new_language/
 |   |   |-- metadata.csv
 |   |   |-- wavs/
-|   |   |   |-- audio_001.wav
-|   |   |   |-- audio_002.wav
+|   |   |   |-- audio_0001.wav
+|   |   |   |-- audio_0002.wav
 |   |   |   |-- ...
 ```
 4. Prepare your metadata and WAV files by running the `prepare_csv_wavs.py` script.
 
-The `prepare_csv_wavs.py` script requires both an input and output directory. Specify the directory where your `metadata.csv` and WAV files are located when running the script.
+The script takes an input directory (where `metadata.csv` and `wavs/` are) and an output directory. F5-TTS looks for training data in `data/<dataset_name>_<tokenizer>`, so name the output folder `new_language_pinyin`. From the `F5-TTS` folder, run:
 ```
-cd F5-TTS/src/f5_tts/train/datasets
-python prepare_csv_wavs.py /F5-TTS/data/new_language_pinyin /F5-TTS/data/new_language_pinyin
+python src/f5_tts/train/datasets/prepare_csv_wavs.py data/new_language data/new_language_pinyin
 ```
-Three new files should have been created: `raw.arrow`, `duration.json`, and `vocab.txt`.
+Three new files should have been created in `data/new_language_pinyin`: `raw.arrow`, `duration.json`, and `vocab.txt` (for fine-tuning, `vocab.txt` is copied from the pre-trained model so the vocabularies match).
 If the `duration.json` file is empty, it likely means the input path was not set correctly. At this point, the file structure should look like this:
 ```
 /F5-TTS
 |-- data/
 |   |-- new_language/
+|   |   |-- metadata.csv
+|   |   |-- wavs/
+|   |-- new_language_pinyin/
 |   |   |-- raw.arrow
 |   |   |-- duration.json
 |   |   |-- vocab.txt
-|   |   |-- metadata.csv
-|   |   |-- wavs/
-|   |   |   |-- audio_001.wav
-|   |   |   |-- audio_002.wav
-|   |   |   |-- ...
 ```
 ## Proceed to Training
-1. Create the base directory and download the pre-trained model.
-   
-To get started, create a directory named F5-TTS_BASE inside your ckpts directory. This directory will store the base model required for fine-tuning.
-Next, download the base model required for fine-tuning. Use the following command:
+1. Download the pre-trained base model.
+
+Create a directory named `F5TTS_Base` inside your `ckpts` directory and download the base model into it:
 ```
-curl -L -o ckpts/F5-TTS_BASE/model_1200000.pt "https://huggingface.co/SWivid/F5-TTS/resolve/main/F5TTS_Base/model_1200000.pt?download=true"
+mkdir -p ckpts/F5TTS_Base
+curl -L -o ckpts/F5TTS_Base/model_1200000.pt "https://huggingface.co/SWivid/F5-TTS/resolve/main/F5TTS_Base/model_1200000.pt?download=true"
 ```
+(If you skip this step and leave out `--pretrain`, the training script downloads the same checkpoint automatically.)
+
 Make sure the directory structure matches the expected format before moving on.
 ```
 /F5-TTS
 |-- ckpts/
-|   |-- F5-TTS-BASE/
+|   |-- F5TTS_Base/
 |   |   |-- model_1200000.pt
 |-- data/
 |   |-- new_language/
+|   |-- new_language_pinyin/
 |   |   |-- raw.arrow
 |   |   |-- duration.json
 |   |   |-- vocab.txt
-|   |   |-- metadata.csv
-|   |   |-- wavs/
-|   |   |   |-- audio_001.wav
-|   |   |   |-- audio_002.wav
-|   |   |   |-- ...
 ```
 2. Start training
 
-Start the training process by specifying parameters for the script; if parameters are omitted, default values will be used.
+`--dataset_name` must match the data folder without the tokenizer suffix (`new_language` for `data/new_language_pinyin`). The `pinyin` tokenizer only converts Chinese characters, so Spanish text, including accented letters, is kept as-is and matches the pre-trained vocabulary. With `--batch_size_type frame`, `--batch_size_per_gpu` counts mel frames, not clips (3200 frames is about 34 seconds of audio). These settings are a small test run; raise `--epochs` for a real dataset.
 ```
-# Define parameters
-exp_name = "F5TTS_Base"
-learning_rate = 1e-05
-batch_size_per_gpu = 1
-batch_size_type = "frame"
-max_samples = 25
-grad_accumulation_steps = 1
-max_grad_norm = 1
-epochs = 5
-num_warmup_updates = 2
-save_per_updates = 20
-last_per_steps = 10
-dataset_name = "test5"
-finetune = True
-logger = "tensorboard"
-tokenizer = "pinyin"
-pretrained_model_path = "data/new_language/model_last.pt"
-
-# Build and run the command
 accelerate launch src/f5_tts/train/finetune_cli.py \
-    --exp_name {exp_name} \
-    --learning_rate {learning_rate} \
-    --batch_size_per_gpu {batch_size_per_gpu} \
-    --batch_size_type {batch_size_type} \
-    --max_samples {max_samples} \
-    --grad_accumulation_steps {grad_accumulation_steps} \
-    --max_grad_norm {max_grad_norm} \
-    --epochs {epochs} \
-    --num_warmup_updates {num_warmup_updates} \
-    --save_per_updates {save_per_updates} \
-    --last_per_steps {last_per_steps} \
-    --dataset_name {dataset_name} \
-    --finetune {finetune} \
-    --tokenizer {tokenizer} # \
-    # --logger {logger} \
-    # --pretrain {pretrained_model_path}
+    --exp_name F5TTS_Base \
+    --dataset_name new_language \
+    --tokenizer pinyin \
+    --finetune True \
+    --pretrain ckpts/F5TTS_Base/model_1200000.pt \
+    --learning_rate 1e-05 \
+    --batch_size_per_gpu 3200 \
+    --batch_size_type frame \
+    --max_samples 25 \
+    --grad_accumulation_steps 1 \
+    --max_grad_norm 1 \
+    --epochs 5 \
+    --num_warmup_updates 2 \
+    --save_per_updates 20 \
+    --last_per_steps 10 \
+    --logger tensorboard
 ```
-If you encounter a division by zero error or other issues during training, try adjusting the batch size, max samples, or other parameters to better suit your system's capabilities and dataset size.
+Checkpoints are saved to `ckpts/new_language/`.
 
-
-
-
-
-
-
+If you get a division by zero error, no batches were created: with `--batch_size_type frame`, every clip longer than `--batch_size_per_gpu` frames is skipped. Raise the frame count, or use `--batch_size_type sample --batch_size_per_gpu 1`. If you run out of GPU memory, lower `--batch_size_per_gpu` or `--max_samples`.
