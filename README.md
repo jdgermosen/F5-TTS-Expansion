@@ -1,4 +1,4 @@
-# F5-TTS-Finetuning
+# F5-TTS-Expansion: Fine-Tuning F5-TTS for a New Language
 This project fine-tunes the F5-TTS model to add a new language, using a pre-trained base to enhance multilingual capabilities.
 
 This tutorial will guide you through the fine-tuning process. To access the official F5-TTS repository, visit: https://github.com/SWivid/F5-TTS.
